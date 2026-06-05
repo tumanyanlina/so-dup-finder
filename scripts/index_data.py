@@ -28,7 +28,8 @@ MAX_PAIRS = 10000  # сколько пар взять из датасета (б�
 
 def build_corpus(max_pairs: int) -> list[str]:
     """Загружает пары дубликатов и разворачивает их в общий список вопросов."""
-    dataset = load_dataset(DATASET, CONFIG, split="train")
+    # B615 подавлено осознанно: датасет — доверенный публичный источник (sentence-transformers)
+    dataset = load_dataset(DATASET, CONFIG, split="train")  # nosec B615
     if max_pairs:
         dataset = dataset.select(range(min(max_pairs, len(dataset))))
     # title1 и title2 — это оба вопросы, объединяем в один корпус
@@ -37,17 +38,13 @@ def build_corpus(max_pairs: int) -> list[str]:
 
 def main() -> None:
     client = get_client()
-
     print(f"Загружаю датасет (первые {MAX_PAIRS} пар)...")
     corpus = build_corpus(MAX_PAIRS)
     print(f"Вопросов до удаления дублей: {len(corpus):,}")
-
     print("Создаю индекс (пересоздаю, если уже есть)...")
     create_index(client, recreate=True)
-
     print("Считаю эмбеддинги и загружаю в Elasticsearch (это займёт пару минут)...")
     indexed = index_questions(client, corpus)
-
     print(f"\nГотово. Уникальных вопросов в индексе: {indexed:,}")
 
 
