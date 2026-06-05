@@ -19,10 +19,14 @@ class SimilarQuestion(BaseModel):
 
     question: str
     score: float = Field(..., description="Косинусная близость (0..1, больше = похожее)")
+    is_duplicate: bool = Field(
+        ..., description="Близость не ниже порога — вероятный дубликат"
+    )
 
 
 class SearchResponse(BaseModel):
-    """Ответ: исходный запрос и список похожих вопросов."""
+    """Ответ: исходный запрос, порог дубликата и список похожих вопросов."""
 
     query: str
+    threshold: float = Field(..., description="Порог, выше которого вопрос считается дубликатом")
     results: list[SimilarQuestion]

@@ -99,8 +99,15 @@ def search_similar(
         source=["question"],
     )
 
+    threshold = settings.similarity_threshold
     results = []
     for hit in response["hits"]["hits"]:
         cosine = 2 * hit["_score"] - 1
-        results.append({"question": hit["_source"]["question"], "score": cosine})
+        results.append(
+            {
+                "question": hit["_source"]["question"],
+                "score": cosine,
+                "is_duplicate": cosine >= threshold,
+            }
+        )
     return results

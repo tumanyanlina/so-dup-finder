@@ -144,13 +144,16 @@
     .result {
       background: var(--card);
       border: 1px solid var(--line);
-      border-left: 3px solid var(--rust);
+      border-left: 3px solid var(--line);
       border-radius: 2px;
       padding: 1rem 1.2rem;
       opacity: 0;
       transform: translateY(8px);
       animation: rise 0.4s ease forwards;
     }
+
+    /* Дубликат — рыжая полоса слева; просто похожий — серая (по умолчанию) */
+    .result.dup { border-left-color: var(--rust); }
 
     @keyframes rise { to { opacity: 1; transform: translateY(0); } }
 
@@ -164,18 +167,26 @@
 
     .q-text { font-size: 1.02rem; font-weight: 500; }
 
+    .tags { display: flex; align-items: center; gap: 0.6rem; flex-shrink: 0; }
+
+    .badge {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.64rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      background: var(--rust);
+      color: var(--paper);
+      padding: 0.18rem 0.5rem;
+      border-radius: 99px;
+    }
+
     .rank {
       font-family: 'IBM Plex Mono', monospace;
       font-size: 0.78rem;
       color: var(--muted);
-      flex-shrink: 0;
     }
 
-    .meter {
-      display: flex;
-      align-items: center;
-      gap: 0.7rem;
-    }
+    .meter { display: flex; align-items: center; gap: 0.7rem; }
 
     .bar {
       flex: 1;
@@ -201,15 +212,6 @@
       flex-shrink: 0;
       min-width: 3ch;
       text-align: right;
-    }
-
-    footer {
-      margin-top: 3rem;
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 0.74rem;
-      color: var(--muted);
-      border-top: 1px solid var(--line);
-      padding-top: 1rem;
     }
   </style>
 </head>
@@ -268,7 +270,7 @@
         }
 
         const data = await response.json();
-        render(data.results);
+        render(data);
       } catch (err) {
         statusEl.textContent = 'Ошибка: ' + err.message;
       } finally {
@@ -276,24 +278,30 @@
       }
     }
 
-    function render(results) {
-      if (!results || results.length === 0) {
+    function render(data) {
+      const results = data.results || [];
+      if (results.length === 0) {
         statusEl.textContent = 'Похожих вопросов не найдено.';
         return;
       }
 
-      statusEl.textContent = 'Найдено: ' + results.length;
+      const duplicates = results.filter((r) => r.is_duplicate).length;
+      const thresholdPct = Math.round(data.threshold * 100);
+      statusEl.textContent =
+        `Найдено: ${results.length} · дубликатов: ${duplicates} (порог ${thresholdPct}%)`;
 
       results.forEach((item, i) => {
         const pct = Math.max(0, Math.min(100, Math.round(item.score * 100)));
 
         const li = document.createElement('li');
-        li.className = 'result';
+        li.className = 'result' + (item.is_duplicate ? ' dup' : '');
         li.style.animationDelay = (i * 0.05) + 's';
+
+        const badge = item.is_duplicate ? '<span class="badge">дубликат</span>' : '';
         li.innerHTML = `
           <div class="result-top">
             <span class="q-text"></span>
-            <span class="rank">#${i + 1}</span>
+            <span class="tags">${badge}<span class="rank">#${i + 1}</span></span>
           </div>
           <div class="meter">
             <div class="bar"><div class="bar-fill"></div></div>
@@ -302,7 +310,6 @@
         li.querySelector('.q-text').textContent = item.question;
         resultsEl.appendChild(li);
 
-        // Запуск анимации полоски после вставки в DOM
         requestAnimationFrame(() => {
           li.querySelector('.bar-fill').style.width = pct + '%';
         });
