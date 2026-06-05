@@ -1,9 +1,6 @@
 # Эмбеддинги (текст -> вектор)
 sentence-transformers>=3.0,<4.0
 
-# Загрузка датасета с Hugging Face
-datasets>=2.19
-
 # Клиент Elasticsearch (мажорная версия = версии сервера 8.x)
 elasticsearch>=8.13,<9.0
 
