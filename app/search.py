@@ -93,8 +93,9 @@ def search_similar(
             "field": "embedding",
             "query_vector": query_vector,
             "k": k,
-            "num_candidates": num_candidates,
+            "num_candidates": max(num_candidates, k),
         },
+        size=k,
         source=["question"],
     )
 
