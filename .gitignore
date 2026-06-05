@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Переменные окружения
+.env
+
+# Данные (датасет не коммитим — он большой)
+data/*
+!data/.gitkeep
+
+# Кэш моделей sentence-transformers
+.cache/
+
+# IDE
+.vscode/
+.idea/
+
+# ОС
+.DS_Store
+Thumbs.db
+
+# Тесты и покрытие
+.pytest_cache/
+.coverage
+htmlcov/
