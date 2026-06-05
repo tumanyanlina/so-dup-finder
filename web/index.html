@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Поиск дубликатов вопросов</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper: #f4efe6;
+      --paper-2: #ece5d8;
+      --ink: #1b1714;
+      --muted: #8a8175;
+      --rust: #c2410c;
+      --rust-soft: #e8d6c8;
+      --line: #d8cfbf;
+      --card: #fbf8f2;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'IBM Plex Sans', sans-serif;
+      background: var(--paper);
+      background-image:
+        radial-gradient(circle at 15% 0%, rgba(194,65,12,0.06), transparent 40%),
+        radial-gradient(circle at 90% 100%, rgba(27,23,20,0.05), transparent 45%);
+      color: var(--ink);
+      min-height: 100vh;
+      line-height: 1.5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 1.5rem;
+    }
+
+    .wrap { width: 100%; max-width: 720px; }
+
+    header { margin-bottom: 2.5rem; }
+
+    .eyebrow {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.72rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--rust);
+      margin-bottom: 0.75rem;
+    }
+
+    h1 {
+      font-family: 'Fraunces', serif;
+      font-weight: 900;
+      font-size: clamp(2.2rem, 6vw, 3.4rem);
+      line-height: 1.02;
+      letter-spacing: -0.02em;
+      margin-bottom: 0.9rem;
+    }
+
+    h1 em { font-style: italic; color: var(--rust); }
+
+    .lede {
+      color: var(--muted);
+      font-size: 1.02rem;
+      max-width: 48ch;
+    }
+
+    .search {
+      display: flex;
+      gap: 0.6rem;
+      margin: 2.2rem 0 0.4rem;
+      flex-wrap: wrap;
+    }
+
+    .field {
+      flex: 1 1 320px;
+      display: flex;
+      align-items: center;
+      background: var(--card);
+      border: 1.5px solid var(--line);
+      border-radius: 2px;
+      padding: 0 1rem;
+      transition: border-color 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .field:focus-within {
+      border-color: var(--rust);
+      box-shadow: 0 0 0 4px rgba(194,65,12,0.1);
+    }
+
+    .field input {
+      flex: 1;
+      border: none;
+      outline: none;
+      background: transparent;
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 1.02rem;
+      color: var(--ink);
+      padding: 0.95rem 0;
+    }
+
+    .field input::placeholder { color: #b3a999; }
+
+    select {
+      border: 1.5px solid var(--line);
+      background: var(--card);
+      border-radius: 2px;
+      padding: 0 0.8rem;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.9rem;
+      color: var(--ink);
+      cursor: pointer;
+      outline: none;
+    }
+
+    button {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-weight: 600;
+      font-size: 0.98rem;
+      background: var(--ink);
+      color: var(--paper);
+      border: none;
+      border-radius: 2px;
+      padding: 0 1.6rem;
+      cursor: pointer;
+      transition: background 0.18s ease, transform 0.05s ease;
+    }
+
+    button:hover { background: var(--rust); }
+    button:active { transform: translateY(1px); }
+    button:disabled { opacity: 0.5; cursor: default; }
+
+    .status {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.82rem;
+      color: var(--muted);
+      min-height: 1.4rem;
+      margin: 1.4rem 0 0.4rem;
+    }
+
+    .results { list-style: none; display: flex; flex-direction: column; gap: 0.7rem; }
+
+    .result {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--rust);
+      border-radius: 2px;
+      padding: 1rem 1.2rem;
+      opacity: 0;
+      transform: translateY(8px);
+      animation: rise 0.4s ease forwards;
+    }
+
+    @keyframes rise { to { opacity: 1; transform: translateY(0); } }
+
+    .result-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 1rem;
+      margin-bottom: 0.6rem;
+    }
+
+    .q-text { font-size: 1.02rem; font-weight: 500; }
+
+    .rank {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.78rem;
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+
+    .meter {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+    }
+
+    .bar {
+      flex: 1;
+      height: 6px;
+      background: var(--paper-2);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--rust-soft), var(--rust));
+      border-radius: 99px;
+      width: 0;
+      transition: width 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+
+    .pct {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--rust);
+      flex-shrink: 0;
+      min-width: 3ch;
+      text-align: right;
+    }
+
+    footer {
+      margin-top: 3rem;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.74rem;
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+      padding-top: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="eyebrow">Stack Exchange · семантический поиск</div>
+      <h1>Поиск <em>дубликатов</em> вопросов</h1>
+      <p class="lede">Введите вопрос — система найдёт похожие по смыслу, а не по совпадению слов. Под капотом: эмбеддинги и kNN-поиск в Elasticsearch.</p>
+    </header>
+
+    <div class="search">
+      <label class="field">
+        <input id="query" type="text" placeholder="Например: how to read a file in python" autocomplete="off">
+      </label>
+      <select id="k" title="Сколько результатов">
+        <option value="5">5</option>
+        <option value="10">10</option>
+        <option value="20">20</option>
+      </select>
+      <button id="go">Найти похожие</button>
+    </div>
+
+    <div class="status" id="status"></div>
+
+    <ul class="results" id="results"></ul>
+  </div>
+
+  <script>
+    const queryInput = document.getElementById('query');
+    const kSelect = document.getElementById('k');
+    const goButton = document.getElementById('go');
+    const statusEl = document.getElementById('status');
+    const resultsEl = document.getElementById('results');
+
+    async function search() {
+      const query = queryInput.value.trim();
+      if (!query) {
+        queryInput.focus();
+        return;
+      }
+
+      goButton.disabled = true;
+      statusEl.textContent = 'Ищу похожие вопросы…';
+      resultsEl.innerHTML = '';
+
+      try {
+        const response = await fetch('/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query, k: Number(kSelect.value) }),
+        });
+
+        if (!response.ok) {
+          throw new Error('Сервер вернул статус ' + response.status);
+        }
+
+        const data = await response.json();
+        render(data.results);
+      } catch (err) {
+        statusEl.textContent = 'Ошибка: ' + err.message;
+      } finally {
+        goButton.disabled = false;
+      }
+    }
+
+    function render(results) {
+      if (!results || results.length === 0) {
+        statusEl.textContent = 'Похожих вопросов не найдено.';
+        return;
+      }
+
+      statusEl.textContent = 'Найдено: ' + results.length;
+
+      results.forEach((item, i) => {
+        const pct = Math.max(0, Math.min(100, Math.round(item.score * 100)));
+
+        const li = document.createElement('li');
+        li.className = 'result';
+        li.style.animationDelay = (i * 0.05) + 's';
+        li.innerHTML = `
+          <div class="result-top">
+            <span class="q-text"></span>
+            <span class="rank">#${i + 1}</span>
+          </div>
+          <div class="meter">
+            <div class="bar"><div class="bar-fill"></div></div>
+            <span class="pct">${pct}%</span>
+          </div>`;
+        li.querySelector('.q-text').textContent = item.question;
+        resultsEl.appendChild(li);
+
+        // Запуск анимации полоски после вставки в DOM
+        requestAnimationFrame(() => {
+          li.querySelector('.bar-fill').style.width = pct + '%';
+        });
+      });
+    }
+
+    goButton.addEventListener('click', search);
+    queryInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') search();
+    });
+    queryInput.focus();
+  </script>
+</body>
+</html>

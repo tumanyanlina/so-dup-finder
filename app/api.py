@@ -7,13 +7,19 @@
 Запуск сервера (из корня проекта, при активном .venv):
     uvicorn app.api:app --reload
 
-Интерактивная веб-страница для тестирования: http://localhost:8000/docs
+Веб-интерфейс:        http://localhost:8000/
+Документация (Swagger): http://localhost:8000/docs
 """
 
+from pathlib import Path
+
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 
 from app.schemas import SearchRequest, SearchResponse, SimilarQuestion
 from app.search import get_client, search_similar
+
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 app = FastAPI(
     title="StackOverflow Duplicate Finder",
@@ -22,6 +28,12 @@ app = FastAPI(
 )
 
 client = get_client()
+
+
+@app.get("/", include_in_schema=False)
+def index() -> FileResponse:
+    """Отдаёт веб-страницу поиска."""
+    return FileResponse(WEB_DIR / "index.html")
 
 
 @app.get("/health")
