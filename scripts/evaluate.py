@@ -39,7 +39,8 @@ SEED = 42               # фиксируем случайность для во�
 def main() -> None:
     random.seed(SEED)
 
-    dataset = load_dataset(DATASET, CONFIG, split="train")
+    # B615 подавлено осознанно: датасет — доверенный публичный источник (sentence-transformers)
+    dataset = load_dataset(DATASET, CONFIG, split="train")  # nosec B615
     dataset = dataset.select(range(min(INDEXED_PAIRS, len(dataset))))
 
     # Берём валидные пары (непустые и не совпадающие дословно)
@@ -50,7 +51,8 @@ def main() -> None:
         and row["title2"].strip()
         and row["title1"].strip() != row["title2"].strip()
     ]
-    sample = random.sample(pairs, min(SAMPLE_SIZE, len(pairs)))
+    # B311 ложное срабатывание: выборка для оценки (seed фиксирован), не криптография
+    sample = random.sample(pairs, min(SAMPLE_SIZE, len(pairs)))  # nosec B311
 
     client = get_client()
 

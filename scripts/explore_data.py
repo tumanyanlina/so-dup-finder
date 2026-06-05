@@ -18,7 +18,8 @@ def main() -> None:
     print(f"Загружаю {DATASET} [{CONFIG}]...")
     print("(первый раз скачивается с Hugging Face, дальше берётся из кэша)\n")
 
-    dataset = load_dataset(DATASET, CONFIG, split="train")
+    # B615 подавлено осознанно: датасет — доверенный публичный источник (sentence-transformers)
+    dataset = load_dataset(DATASET, CONFIG, split="train")  # nosec B615
 
     print(f"Всего пар дубликатов: {len(dataset):,}")
     print(f"Колонки: {dataset.column_names}\n")
