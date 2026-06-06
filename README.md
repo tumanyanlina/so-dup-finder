@@ -1,333 +1,271 @@
-# Лабораторная работа №13
-## Мультиагентные системы: разработка распределённых интеллектуальных агентов
+# Поиск дубликатов вопросов StackExchange
 
-Студент: Туманян Лина Врежовна
-Группа: 220032-11
-Вариант: 27 (Автоматизация тестирования ПО)
-Уровень сложности: Средний
+![CI](https://github.com/tumanyanlina/so-dup-finder/actions/workflows/ci.yml/badge.svg)
+![Python](https://img.shields.io/badge/python-3.13-3776AB?logo=python&logoColor=white)
+![Elasticsearch](https://img.shields.io/badge/elasticsearch-8.15-005571?logo=elasticsearch&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.11x-009688?logo=fastapi&logoColor=white)
+![Docker](https://img.shields.io/badge/docker-compose-2496ED?logo=docker&logoColor=white)
 
----
+Система определения **дубликатов вопросов по смыслу**. Находит семантически похожие
+вопросы с помощью эмбеддингов `sentence-transformers` и быстрого kNN-поиска в
+Elasticsearch, помечает вероятные дубликаты по порогу близости и предоставляет
+веб-интерфейс и REST API для тестирования.
 
-## Выполненные задания
-- Задание 1 — Определение агентов и их ролей
-- Задание 2 — Разработка прототипа агента на Go
-- Задание 3 — Разработка оркестратора на Python
-- Задание 4 — Настройка коммуникации через NATS
-- Задание 5 — Логирование и мониторинг
-- Задание 6 — Обработка ошибок и таймаутов
-- Задание 7 — Запуск нескольких агентов одного типа
-- Задание 8 — Создание API для запуска задач
-- Задание 9 — Тестирование системы
-- Задание 10 — Документирование архитектуры
+> Курсовая работа по дисциплине «Методы и технологии программирования», вариант 26.
+> Предметная область — обработка естественного языка (NLP).
 
 ---
 
-## Стек
-- Go 1.22 — агенты
-- Python 3.11 — оркестратор, FastAPI
-- NATS 2.10 — брокер сообщений
-- Docker / Docker Compose — инфраструктура
+## Содержание
+
+- [Зачем это нужно](#зачем-это-нужно)
+- [Как это работает](#как-это-работает)
+- [Технологический стек](#технологический-стек)
+- [Быстрый старт (Docker)](#быстрый-старт-docker)
+- [Локальный запуск](#локальный-запуск)
+- [Индексация данных](#индексация-данных)
+- [REST API](#rest-api)
+- [Конфигурация](#конфигурация)
+- [Тестирование](#тестирование)
+- [Безопасность](#безопасность)
+- [Качество и производительность](#качество-и-производительность)
+- [Структура проекта](#структура-проекта)
+- [Ограничения и развитие](#ограничения-и-развитие)
 
 ---
+
+## Зачем это нужно
+
+На платформах вопросов и ответов (StackOverflow, сеть Stack Exchange) огромная доля
+вопросов — **дубликаты**: одно и то же спрашивают разными словами. Это дробит ответы по
+множеству страниц и затрудняет поиск готового решения.
+
+Обычный поиск по ключевым словам тут бессилен: два вопроса об одном и том же могут не
+иметь **ни одного общего слова**. Пример из реальной выдачи системы:
+
+| Запрос | Найденный дубликат | Близость |
+|--------|--------------------|----------|
+| `invert the order of characters in a string` | `Best way to reverse a string` | 67 % |
+| `how do I get rid of repeated items` | `Removing duplicates from a list` | — |
+
+Ни «invert/order/characters» против «reverse/string» не совпадают по словам — а система
+находит, потому что сравнивает **смысл**, а не текст.
+
+## Как это работает
+
+Каждый вопрос превращается в вектор (эмбеддинг) размерности 384 одной и той же моделью.
+Близким по смыслу вопросам соответствуют близкие векторы; близость измеряется косинусной
+мерой. Elasticsearch хранит векторы и быстро находит ближайшие (приближённый kNN, HNSW).
+
+```mermaid
+flowchart LR
+    U([Пользователь]) --> W[Веб-страница]
+    W -->|POST /search| API[FastAPI]
+    API --> E[Модуль эмбеддингов]
+    E -->|вектор 384| ES[(Elasticsearch<br/>dense_vector + kNN)]
+    ES -->|топ-k + score| API
+    API -->|JSON: результаты + порог| W
+
+    DS[Датасет StackExchange] --> IDX[index_data.py]
+    IDX --> E
+```
+
+Поиск одного запроса по шагам:
+
+```mermaid
+sequenceDiagram
+    actor U as Пользователь
+    participant W as Веб-страница
+    participant A as FastAPI
+    participant E as Эмбеддинги
+    participant ES as Elasticsearch
+    U->>W: вводит вопрос
+    W->>A: POST /search {query, k}
+    A->>E: encode(query)
+    E-->>A: вектор 384
+    A->>ES: kNN-поиск по вектору
+    ES-->>A: топ-k + _score
+    A->>A: _score → косинус, флаг дубликата
+    A-->>W: JSON {threshold, results}
+    W-->>U: карточки с близостью и бейджами
+```
+
+## Технологический стек
+
+| Слой | Технология | Роль |
+|------|------------|------|
+| Эмбеддинги | sentence-transformers (`all-MiniLM-L6-v2`) | текст → вектор 384 |
+| Хранилище и поиск | Elasticsearch 8.15 (`dense_vector`, kNN) | хранение векторов, поиск по близости |
+| Веб / API | FastAPI + Uvicorn | REST API и веб-страница |
+| Валидация | Pydantic | схемы запроса/ответа |
+| Контейнеризация | Docker + Docker Compose | развёртывание всего стека |
+| Качество | pytest, bandit, pip-audit | тесты и анализ безопасности |
+| CI/CD | GitHub Actions | автозапуск bandit + pytest |
+
+## Быстрый старт (Docker)
+
+```bash
+docker compose up --build
+```
+
+Поднимутся два контейнера — приложение и Elasticsearch. После старта:
+
+- Веб-интерфейс — http://localhost:8000/
+- Документация API (Swagger) — http://localhost:8000/docs
+
+Перед первым поиском нужно один раз [проиндексировать данные](#индексация-данных).
+
+## Локальный запуск
+
+```bash
+python -m venv .venv
+# Windows:        .\.venv\Scripts\Activate.ps1
+# Linux / macOS:  source .venv/bin/activate
+pip install -r requirements.txt
+
+docker compose up -d elasticsearch   # только Elasticsearch
+python scripts/index_data.py          # индексация (один раз)
+uvicorn app.api:app --reload          # сервер на http://localhost:8000
+```
+
+> В Docker-образе ставится **CPU-сборка PyTorch**, чтобы не тянуть многогигабайтные
+> CUDA-библиотеки (инференс идёт на CPU).
+
+## Индексация данных
+
+```bash
+python scripts/index_data.py
+```
+
+Загружает первые `MAX_PAIRS` пар из датасета
+`sentence-transformers/stackexchange-duplicates`, считает эмбеддинги и кладёт уникальные
+вопросы в индекс `so_questions` (~19 000 вопросов при 10 000 парах).
+
+Вспомогательные сценарии:
+
+| Сценарий | Назначение |
+|----------|------------|
+| `scripts/explore_data.py` | предпросмотр датасета |
+| `scripts/index_data.py` | индексация в Elasticsearch |
+| `scripts/search_cli.py` | поиск из командной строки |
+| `scripts/evaluate.py` | метрики качества (Recall@k, MRR) |
+| `scripts/benchmark.py` | замер латентности поиска |
+
+## REST API
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `GET` | `/` | веб-страница поиска |
+| `GET` | `/health` | проверка состояния (доступен ли Elasticsearch) |
+| `POST` | `/search` | поиск похожих вопросов |
+| `GET` | `/docs` | интерактивная документация (Swagger UI) |
+
+Пример запроса:
+
+```http
+POST /search
+Content-Type: application/json
+
+{ "query": "how to read a file in python", "k": 5 }
+```
+
+Пример ответа:
+
+```json
+{
+  "query": "how to read a file in python",
+  "threshold": 0.8,
+  "results": [
+    { "question": "Read a list from a file in python", "score": 0.84, "is_duplicate": true },
+    { "question": "Read a text file and save value as variable", "score": 0.74, "is_duplicate": false }
+  ]
+}
+```
+
+## Конфигурация
+
+Настройки задаются в `app/config.py` (через `pydantic-settings`) и переопределяются
+переменными окружения или файлом `.env`:
+
+| Параметр | По умолчанию | Описание |
+|----------|--------------|----------|
+| `elasticsearch_url` | `http://localhost:9200` | адрес Elasticsearch |
+| `index_name` | `so_questions` | имя индекса |
+| `embedding_model` | `all-MiniLM-L6-v2` | модель эмбеддингов |
+| `embedding_dim` | `384` | размерность вектора |
+| `similarity_threshold` | `0.8` | порог отнесения к дубликатам |
+
+В Docker `ELASTICSEARCH_URL` указывает на сервис `elasticsearch` внутри сети Compose.
+
+## Тестирование
+
+```bash
+pytest -v
+```
+
+15 тестов: модульные (настройки, схемы, эмбеддинги — размерность, нормализация,
+семантическая близость) и интеграционные (индексация и поиск во временном индексе, API).
+Интеграционные тесты автоматически пропускаются, если Elasticsearch недоступен.
+
+## Безопасность
+
+```bash
+bandit -r app scripts   # статический анализ кода (SAST)
+pip-audit               # проверка зависимостей (SCA)
+```
+
+Результаты: bandit — `No issues identified` (замечания разобраны и обоснованы);
+pip-audit — уязвимости `pip` устранены обновлением, по `transformers` риск принят с
+обоснованием. Отчёты: `docs/bandit-report.txt`, `docs/pip-audit-report.md`.
+
+## Качество и производительность
+
+Оценка на 300 размеченных парах дубликатов:
+
+| Метрика | Значение | Что означает |
+|---------|----------|--------------|
+| Recall@1 | 0.51 | дубликат на 1-м месте выдачи |
+| Recall@5 | 0.67 | дубликат в топ-5 |
+| Recall@10 | 0.74 | дубликат в топ-10 |
+| MRR | 0.58 | средняя обратная позиция дубликата |
+
+Производительность поиска (CPU):
+
+| Показатель | Значение |
+|------------|----------|
+| Средняя латентность | ~37 мс |
+| Медиана | ~37 мс |
+| p95 | ~48 мс |
+| Пропускная способность | ~27 запросов/с |
 
 ## Структура проекта
+
 ```
-lab13/
-├── agents/
-│   └── test-generator/
-│       ├── main.go
-│       ├── main_test.go
-│       └── go.mod
-├── orchestartor/
-│   ├── orchestrator.py
-│   ├── api.py
-│   ├── requirements.txt
-│   └── tests/
-│       └── test_orchestrator.py
-├── docs/
-│   ├── agents.md
-│   └── architecture.md
+so-dup-finder/
+├── app/                  # приложение
+│   ├── config.py         # настройки (pydantic-settings)
+│   ├── embeddings.py     # текст → нормализованный вектор
+│   ├── search.py         # индекс и kNN-поиск в Elasticsearch
+│   ├── schemas.py        # схемы запроса/ответа API
+│   └── api.py            # FastAPI: /, /health, /search
+├── web/
+│   └── index.html        # веб-страница поиска
+├── scripts/              # индексация, оценка, бенчмарк, демо
+├── tests/                # тесты pytest
+├── docs/                 # диаграммы и отчёты безопасности
+├── .github/workflows/    # CI (GitHub Actions)
+├── Dockerfile
 ├── docker-compose.yml
-├── .gitignore
-├── .dockerignore
-├── PROMPT_LOG.md
-└── README.md
+└── requirements.txt
 ```
 
----
-
-## Быстрый старт
-
-```powershell
-# 1. Поднять NATS
-docker-compose up -d
-
-# 2. Запустить агент
-cd agents/test-generator
-$env:INSTANCE_ID="1"; go run main.go
-
-# 3. Установить зависимости оркестратора
-cd orchestartor
-pip install -r requirements.txt
-
-# 4. Запустить API
-python -m uvicorn api:app --reload --port 8000
-```
-
----
-
-## Задание 1 — Определение агентов и их ролей
-
-Описание всех агентов системы находится в `docs/agents.md`.
-
-| Агент | Роль |
-|---|---|
-| test-generator | Принимает описание модуля и генерирует тест-кейсы |
-| test-runner | Запускает тесты и возвращает результаты |
-| coverage-analyzer | Анализирует покрытие кода тестами |
-| report-generator | Формирует итоговый отчёт по результатам |
-
----
-
-## Задание 2 — Разработка прототипа агента на Go
-
-Агент `test-generator` подписывается на топик `tasks.generate` в NATS,
-принимает JSON-задачу, генерирует тест-кейсы и публикует результат в `tasks.completed`.
-
-### Запуск
-```powershell
-cd agents/test-generator
-go mod tidy
-go run main.go
-```
-
-### Вывод
-```
-2026/05/22 00:15:21 [INFO] test-generator connected to NATS at nats://127.0.0.1:4222
-2026/05/22 00:15:21 [INFO] test-generator listening on tasks.generate
-```
-
----
-
-## Задание 3 — Разработка оркестратора на Python
-
-Оркестратор на asyncio и nats-py отправляет задачи агентам, ожидает результаты
-и обрабатывает таймауты.
-
-### Установка зависимостей
-```powershell
-cd orchestartor
-pip install -r requirements.txt
-```
-
-### Файлы
-- `orchestartor/orchestrator.py` — класс Orchestrator
-- `orchestartor/requirements.txt` — зависимости
-
----
-
-## Задание 4 — Настройка коммуникации через NATS
-
-NATS разворачивается через Docker Compose. Агент слушает `tasks.generate`,
-оркестратор публикует туда задачи и слушает `tasks.completed`.
-
-### Запуск NATS
-```powershell
-docker-compose up -d
-```
-
-### Проверка
-Открыть в браузере: http://localhost:8222/healthz
-
-### Вывод
-```json
-{"status": "ok"}
-```
-
----
-
-## Задание 5 — Логирование и мониторинг
-
-Агент пишет логи одновременно в консоль и файл `agent-{instance_id}.log`.
-Оркестратор пишет в консоль и `orchestrator.log`.
-Каждые 30 секунд оркестратор выводит метрики: tasks_sent, tasks_completed, pending.
-
-### Формат логов агента
-```
-[instance:1] 2026/05/22 00:28:39 [INFO] received task test-0 for module calculator
-[instance:1] 2026/05/22 00:28:39 [INFO] task test-0 completed: 3 test cases generated, total processed: 1
-```
-
----
-
-## Задание 6 — Обработка ошибок и таймаутов
-
-В оркестраторе реализован метод `send_task_with_retry` — повторяет отправку
-задачи до 3 раз при сбое с задержкой 2 секунды между попытками.
-
-### Логика
-- Таймаут ожидания результата — 30 секунд
-- При таймауте или ошибке — повтор, не более 3 раз
-- После 3 неудач — исключение с логом
-
----
-
-## Задание 7 — Запуск нескольких агентов одного типа
-
-Используется NATS Queue Groups — механизм балансировки нагрузки.
-Агенты подписываются на одну группу `test-generator-group` и NATS
-автоматически распределяет задачи между ними.
-
-### Запуск 3 агентов
-```powershell
-# Терминал 1
-$env:INSTANCE_ID="1"; go run main.go
-
-# Терминал 2
-$env:INSTANCE_ID="2"; go run main.go
-
-# Терминал 3
-$env:INSTANCE_ID="3"; go run main.go
-```
-
-### Вывод — распределение 6 задач между агентами
-```
-[instance:1] received task test-0 → completed (total: 1)
-
-[instance:2] received task test-1 → completed (total: 1)
-[instance:2] received task test-4 → completed (total: 2)
-
-[instance:3] received task test-2 → completed (total: 1)
-[instance:3] received task test-3 → completed (total: 2)
-[instance:3] received task test-5 → completed (total: 3)
-```
-
-6 задач распределились между тремя агентами автоматически.
-
----
-
-## Задание 8 — Создание API для запуска задач
-
-REST API на FastAPI принимает HTTP запросы, передаёт задачи оркестратору и возвращает результат.
-
-### Эндпоинты
-| Метод | Путь | Описание |
-|---|---|---|
-| GET | /health | Проверка состояния сервиса |
-| POST | /tasks/generate | Отправить задачу агенту |
-
-### Запуск
-```powershell
-cd orchestartor
-python -m uvicorn api:app --reload --port 8000
-```
-
-### Вывод
-```
-INFO:     Uvicorn running on http://127.0.0.1:8000
-INFO:     Waiting for application startup.
-2026-05-22 00:45:13,511 [INFO] orchestrator connected to NATS at nats://localhost:4222
-2026-05-22 00:45:13,511 [INFO] API started
-INFO:     Application startup complete.
-```
-
-### Проверка health
-Открыть в браузере: http://localhost:8000/health
-```json
-{"status":"ok","tasks_sent":0,"tasks_completed":0}
-```
-
-### Отправка задачи через /docs
-Открыть в браузере: http://localhost:8000/docs
-
-### Результат выполнения задачи
-```
-2026-05-22 00:46:03,368 [INFO] attempt 1/3 for task type generate
-2026-05-22 00:46:03,369 [INFO] task d62b907f sent to tasks.generate
-2026-05-22 00:46:03,375 [INFO] task d62b907f completed
-2026-05-22 00:46:03,376 [INFO] task type generate succeeded on attempt 1
-2026-05-22 00:46:13,537 [INFO] metrics: tasks_sent=1 tasks_completed=1 pending=0
-```
-
----
-
-## Задание 9 — Тестирование системы
-
-### Тесты агента на Go — `agents/test-generator/main_test.go`
-
-| Тест | Что проверяет |
-|---|---|
-| TestGenerateTestCases_Success | Успешная генерация 3 тест-кейсов для модуля на Go |
-| TestGenerateTestCases_EmptyDescription | Возвращает ошибку если description пустой |
-| TestGenerateTestCases_UnsupportedLanguage | Возвращает ошибку для неподдерживаемого языка (java) |
-| TestGenerateTestCases_PythonLanguage | Успешная генерация тест-кейсов для модуля на Python |
-
-#### Запуск
-```powershell
-cd agents/test-generator
-go test ./... -v
-```
-
-#### Вывод
-```
-=== RUN   TestGenerateTestCases_Success
---- PASS: TestGenerateTestCases_Success (0.00s)
-=== RUN   TestGenerateTestCases_EmptyDescription
---- PASS: TestGenerateTestCases_EmptyDescription (0.00s)
-=== RUN   TestGenerateTestCases_UnsupportedLanguage
---- PASS: TestGenerateTestCases_UnsupportedLanguage (0.00s)
-=== RUN   TestGenerateTestCases_PythonLanguage
---- PASS: TestGenerateTestCases_PythonLanguage (0.00s)
-PASS
-ok      github.com/lab13/agents/test-generator  1.813s
-```
-
----
-
-### Тесты оркестратора на Python — `orchestartor/tests/test_orchestrator.py`
-
-NATS замокан через `unittest.mock` — тесты работают без реального подключения.
-
-| Тест | Что проверяет |
-|---|---|
-| test_orchestrator_initial_state | Начальное состояние: tasks_sent=0, tasks_completed=0, pending={} |
-| test_send_task_increments_tasks_sent | После отправки задачи tasks_sent увеличивается на 1, результат успешный |
-| test_on_result_completes_future | При получении результата future завершается, tasks_completed увеличивается, задача удаляется из pending |
-| test_on_result_ignores_unknown_task | Неизвестный task_id игнорируется, tasks_completed не меняется |
-| test_send_task_timeout | При таймауте выбрасывается TimeoutError |
-
-#### Запуск
-```powershell
-cd orchestartor
-python -m pytest tests/ -v
-```
-
-#### Вывод
-```
-tests/test_orchestrator.py::test_orchestrator_initial_state PASSED        [ 20%]
-tests/test_orchestrator.py::test_send_task_increments_tasks_sent PASSED   [ 40%]
-tests/test_orchestrator.py::test_on_result_completes_future PASSED        [ 60%]
-tests/test_orchestrator.py::test_on_result_ignores_unknown_task PASSED    [ 80%]
-tests/test_orchestrator.py::test_send_task_timeout PASSED                 [100%]
-5 passed in 0.63s
-```
-
----
-
-## Задание 10 — Документирование архитектуры
-
-Диаграмма взаимодействия и описание компонентов находятся в `docs/architecture.md`.
-
-### Компоненты
-| Компонент | Технология | Описание |
-|---|---|---|
-| FastAPI | Python | REST API, точка входа для клиентов |
-| Orchestrator | Python + asyncio | Управляет задачами, retry, таймауты |
-| NATS Broker | Docker | Брокер сообщений между компонентами |
-| test-generator | Go | Агент генерации тест-кейсов |
-
-### Топики NATS
-| Топик | Направление | Описание |
-|---|---|---|
-| tasks.generate | Orchestrator → Agent | Задача на генерацию тестов |
-| tasks.completed | Agent → Orchestrator | Результат выполнения |
+## Ограничения и развитие
+
+- Датасет содержит только **заголовки** вопросов (без ссылок и ответов), поэтому
+  результаты не ведут на внешние страницы — реализована основная, содержательная часть:
+  семантическое сопоставление.
+- Качество ограничено краткостью заголовков и шумом в разметке датасета.
+
+**Перспективы:** использование полного текста вопроса; более крупная или многоязычная
+модель; подбор порога по данным (точность/полнота); связывание результатов с реальными
+страницами вопросов при наличии ссылок.
