@@ -1,0 +1,17 @@
+# Виртуальное окружение и кэши
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Данные и локальные артефакты
+data/
+.env
+
+# Git и документация (в образ не нужны)
+.git/
+.gitignore
+docs/
+tests/
+scripts/
+README.md

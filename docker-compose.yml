@@ -16,5 +16,21 @@ services:
       timeout: 5s
       retries: 12
 
+  app:
+    build: .
+    container_name: so-dup-app
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      # Внутри сети Docker до ES обращаемся по имени сервиса, а не по localhost
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+    ports:
+      - "8000:8000"
+    volumes:
+      # Кэш модели sentence-transformers, чтобы не качать её при каждом перезапуске
+      - hf-cache:/root/.cache/huggingface
+
 volumes:
   es-data:
+  hf-cache:
